@@ -537,6 +537,113 @@ function renderAdminChannels() {
   updateSelectedCount();
 }
 
+function parseM3U(text) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const result = [];
+  let current = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith("#EXTINF:")) {
+      const commaIndex = line.indexOf(",");
+      const info = commaIndex >= 0 ? line.slice(0, commaIndex) : line;
+      const name = commaIndex >= 0 ? line.slice(commaIndex + 1).trim() : "Unknown Channel";
+
+      const getAttr = (attr) => {
+        const re = new RegExp(attr + '="([^"]*)"', "i");
+        const match = info.match(re);
+        return match ? match[1].trim() : "";
+      };
+
+      current = {
+        name: name || getAttr("tvg-name") || "Unknown Channel",
+        category: getAttr("group-title") || "General",
+        logo_url: getAttr("tvg-logo") || null,
+        stream_url: "",
+        description: null,
+        status: "live"
+      };
+    } else if (!line.startsWith("#") && current) {
+      current.stream_url = line;
+      if (current.name && current.stream_url) result.push(current);
+      current = null;
+    }
+  }
+
+  return result;
+}
+
+async function importM3U() {
+  const url = $("m3uUrl").value.trim();
+
+  if (!url) {
+    showMessage("adminError", "Paste an M3U playlist URL first.");
+    return;
+  }
+
+  try {
+    new URL(url);
+  } catch {
+    showMessage("adminError", "Please enter a valid M3U URL.");
+    return;
+  }
+
+  showMessage("adminNotice", "Downloading and reading the M3U playlist...", "notice");
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`The playlist server returned HTTP ${response.status}.`);
+    }
+
+    const text = await response.text();
+    const rows = parseM3U(text);
+
+    if (!rows.length) {
+      throw new Error("No channels were found in this M3U playlist.");
+    }
+
+    const existingUrls = new Set(channels.map(c => String(c.stream_url || "").trim()));
+    const cleaned = rows.filter(c => !existingUrls.has(c.stream_url));
+
+    if (!cleaned.length) {
+      showMessage("adminNotice", "All channels in this playlist are already in MASTER TV.", "notice");
+      return;
+    }
+
+    const batchSize = 100;
+    let imported = 0;
+
+    for (let i = 0; i < cleaned.length; i += batchSize) {
+      const batch = cleaned.slice(i, i + batchSize);
+      const { error } = await db.from("channels").insert(batch);
+      if (error) throw error;
+      imported += batch.length;
+    }
+
+    $("m3uUrl").value = "";
+    showMessage(
+      "adminNotice",
+      `${imported} channel(s) imported from the M3U playlist. ${rows.length - cleaned.length} duplicate(s) skipped.`,
+      "notice"
+    );
+    await loadChannels();
+  } catch (err) {
+    console.error("M3U import error:", err);
+    showMessage(
+      "adminError",
+      `M3U import failed: ${err.message || "Unable to read the playlist."} If the URL is public but blocks browser access (CORS), we will add a server-side importer next.`
+    );
+  }
+}
+
 async function importJson() {
   const file = $("jsonFile").files[0];
   if (!file) {
