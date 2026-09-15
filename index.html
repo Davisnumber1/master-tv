@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -485,18 +486,31 @@ async function deleteSelectedChannels() {
     return;
   }
 
-  const { error } = await db
-    .from("channels")
-    .delete()
-    .in("id", selectedIds);
+  const batchSize = 50;
+  let deleted = 0;
 
-  if (error) {
-    showMessage("adminError", error.message);
-    return;
+  for (let i = 0; i < selectedIds.length; i += batchSize) {
+    const batch = selectedIds.slice(i, i + batchSize);
+
+    const { error } = await db
+      .from("channels")
+      .delete()
+      .in("id", batch);
+
+    if (error) {
+      showMessage(
+        "adminError",
+        `Deleted ${deleted} of ${selectedIds.length} selected channel(s). ${error.message}`
+      );
+      await loadChannels();
+      return;
+    }
+
+    deleted += batch.length;
   }
 
   $("selectAllChannels").checked = false;
-  showMessage("adminNotice", `${selectedIds.length} channel(s) deleted.`, "notice");
+  showMessage("adminNotice", `${deleted} channel(s) deleted.`, "notice");
   await loadChannels();
 }
 
