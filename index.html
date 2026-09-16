@@ -174,8 +174,8 @@ input:focus,select:focus{border-color:var(--blue)}
       </div>
 
       <div>
-        <label>Stream URL *</label>
-        <input id="channelStream" type="url" required placeholder="https://.../stream.m3u8">
+        <label>Stream URL</label>
+        <input id="channelStream" type="url" placeholder="https://.../stream.m3u8">
       </div>
 
       <div class="full">
@@ -417,7 +417,7 @@ async function saveChannel(e) {
     name: $("channelName").value.trim(),
     category: $("channelCategory").value.trim(),
     logo_url: $("channelLogo").value.trim() || null,
-    stream_url: $("channelStream").value.trim(),
+    stream_url: $("channelStream").value.trim() || null,
     description: $("channelDescription").value.trim() || null,
     status: $("channelStatus").value
   };
@@ -486,31 +486,18 @@ async function deleteSelectedChannels() {
     return;
   }
 
-  const batchSize = 50;
-  let deleted = 0;
+  const { error } = await db
+    .from("channels")
+    .delete()
+    .in("id", selectedIds);
 
-  for (let i = 0; i < selectedIds.length; i += batchSize) {
-    const batch = selectedIds.slice(i, i + batchSize);
-
-    const { error } = await db
-      .from("channels")
-      .delete()
-      .in("id", batch);
-
-    if (error) {
-      showMessage(
-        "adminError",
-        `Deleted ${deleted} of ${selectedIds.length} selected channel(s). ${error.message}`
-      );
-      await loadChannels();
-      return;
-    }
-
-    deleted += batch.length;
+  if (error) {
+    showMessage("adminError", error.message);
+    return;
   }
 
   $("selectAllChannels").checked = false;
-  showMessage("adminNotice", `${deleted} channel(s) deleted.`, "notice");
+  showMessage("adminNotice", `${selectedIds.length} channel(s) deleted.`, "notice");
   await loadChannels();
 }
 
